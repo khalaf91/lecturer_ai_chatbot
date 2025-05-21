@@ -47,6 +47,10 @@ def extract_text_from_pptx(file):
     os.remove(tmp_path)
     return text
 
+def extract_text_from_excel(file):
+    df = pd.read_excel(file)
+    return df.to_string(index=False)
+
 def chat_with_gpt(prompt, context=""):
     messages = [
         {"role": "system", "content": "You are an assistant for a lecturer. Answer clearly and helpfully."},
@@ -54,7 +58,8 @@ def chat_with_gpt(prompt, context=""):
     if context:
         messages.append({"role": "user", "content": f"Context:\n{context}"})
     messages.append({"role": "user", "content": prompt})
-    response = openai.ChatCompletion.create(
+
+    response = openai.chat.completions.create(
         model=MODEL,
         messages=messages,
         temperature=0.4,
@@ -115,7 +120,7 @@ check_password()
 # ---- UI ----
 st.title("Lecturer AI Assistant")
 
-uploaded_files = st.file_uploader("Upload PDFs, Word (DOCX), or PPTX files", type=["pdf", "docx", "pptx"], accept_multiple_files=True)
+uploaded_files = st.file_uploader("Upload PDFs, Word (DOCX), PPTX, or Excel (XLSX) files", type=["pdf", "docx", "pptx", "xlsx"], accept_multiple_files=True)
 user_query = st.text_input("Ask a question")
 
 if "doc_text" not in st.session_state:
@@ -133,6 +138,8 @@ if uploaded_files:
                 all_text.append(extract_text_from_docx(uploaded_file))
             elif uploaded_file.name.endswith(".pptx"):
                 all_text.append(extract_text_from_pptx(uploaded_file))
+            elif uploaded_file.name.endswith(".xlsx"):
+                all_text.append(extract_text_from_excel(uploaded_file))
     st.session_state.doc_text = "\n\n".join(all_text)
     st.success(f"Loaded {len(uploaded_files)} file(s) successfully!")
 
