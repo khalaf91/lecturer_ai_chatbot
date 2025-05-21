@@ -48,17 +48,15 @@ def extract_text_from_pptx(file):
     return text
 
 def extract_text_from_excel(file):
-    df = pd.read_excel(file)
-    return df.to_string(index=False)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+        tmp.write(file.read())
+        tmp_path = tmp.name
+    df = pd.read_excel(tmp_path)
+    text = df.to_string(index=False)
+    os.remove(tmp_path)
+    return text
 
-def chat_with_gpt(prompt, context=""):
-    messages = [
-        {"role": "system", "content": "You are an assistant for a lecturer. Answer clearly and helpfully."},
-    ]
-    if context:
-        messages.append({"role": "user", "content": f"Context:\n{context}"})
-    messages.append({"role": "user", "content": prompt})
-
+def chat_with_gpt(messages):
     response = openai.chat.completions.create(
         model=MODEL,
         messages=messages,
@@ -120,13 +118,15 @@ check_password()
 # ---- UI ----
 st.title("Lecturer AI Assistant")
 
-uploaded_files = st.file_uploader("Upload PDFs, Word (DOCX), PPTX, or Excel (XLSX) files", type=["pdf", "docx", "pptx", "xlsx"], accept_multiple_files=True)
-user_query = st.text_input("Ask a question")
+uploaded_files = st.file_uploader("Upload PDFs, Word (DOCX), PPTX or Excel files", type=["pdf", "docx", "pptx", "xlsx"], accept_multiple_files=True)
+user_query = st.text_input("Type your message")
 
 if "doc_text" not in st.session_state:
     st.session_state.doc_text = ""
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+    st.session_state.chat_history = [
+        {"role": "system", "content": "You are an assistant for a lecturer. Answer clearly and helpfully."}
+    ]
 
 if uploaded_files:
     all_text = []
@@ -144,40 +144,46 @@ if uploaded_files:
     st.success(f"Loaded {len(uploaded_files)} file(s) successfully!")
 
 if user_query:
+    st.session_state.chat_history.append({"role": "user", "content": user_query})
+    context_message = {"role": "user", "content": f"Context:\n{st.session_state.doc_text}"} if st.session_state.doc_text else None
+    messages = st.session_state.chat_history.copy()
+    if context_message:
+        messages.insert(1, context_message)
     with st.spinner("Thinking..."):
-        response = chat_with_gpt(user_query, context=st.session_state.doc_text)
-        st.markdown("**Answer:**")
-        st.write(response)
-        st.session_state.chat_history.append((user_query, response))
+        response = chat_with_gpt(messages)
+        st.session_state.chat_history.append({"role": "assistant", "content": response})
+
+# ---- Chat Display ----
+if len(st.session_state.chat_history) > 1:
+    st.markdown("### 💬 Conversation")
+    for msg in st.session_state.chat_history[1:]:
+        if msg["role"] == "user":
+            st.markdown(f"**👤 You:** {msg['content']}")
+        elif msg["role"] == "assistant":
+            st.markdown(f"**🤖 AI:** {msg['content']}")
 
     st.markdown("---")
-    st.markdown("### Export Answer")
+    st.markdown("### Export Last AI Response")
 
+    last_response = st.session_state.chat_history[-1]["content"]
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         if st.button("Export to PDF"):
-            pdf_file = export_to_pdf(response)
+            pdf_file = export_to_pdf(last_response)
             with open(pdf_file, "rb") as f:
                 st.download_button("Download PDF", f, file_name=pdf_file, mime="application/pdf")
     with col2:
         if st.button("Export to DOCX"):
-            docx_file = export_to_docx(response)
+            docx_file = export_to_docx(last_response)
             with open(docx_file, "rb") as f:
                 st.download_button("Download DOCX", f, file_name=docx_file, mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
     with col3:
         if st.button("Export to PPTX"):
-            pptx_file = export_to_pptx(response)
+            pptx_file = export_to_pptx(last_response)
             with open(pptx_file, "rb") as f:
                 st.download_button("Download PPTX", f, file_name=pptx_file, mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
     with col4:
         if st.button("Export to Excel"):
-            excel_file = export_to_excel(response)
+            excel_file = export_to_excel(last_response)
             with open(excel_file, "rb") as f:
                 st.download_button("Download Excel", f, file_name=excel_file, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-if st.session_state.chat_history:
-    st.markdown("### 🕘 Chat History")
-    for i, (q, a) in enumerate(reversed(st.session_state.chat_history)):
-        st.markdown(f"**Q{i+1}:** {q}")
-        st.markdown(f"**A{i+1}:** {a}")
-        st.markdown("---")
